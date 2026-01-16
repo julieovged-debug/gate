@@ -1,27 +1,64 @@
 <?php
-require_once __DIR__ . "/../config.php";
-require_once __DIR__ . "/../vendor/autoload.php";
-
-date_default_timezone_set(TIMEZONE);
+/**
+ * @var User $logged_in_user
+ */
 
 try {
-    require_once __DIR__ . "/../includes/get-user.php";
-    if (isset($user)) {
-        if ($user) {
-            require_once __DIR__ . "/../includes/get-messages.php";
-            $messages = getMessages($user);
-            if (count($messages) > 0) {
-                Message::resend($messages, $user);
-                echo json_encode(["success" => true, "data" => ["messages" => $messages], "error" => null]);
-            } else {
-                echo json_encode(["success" => false, "data" => null, "error" => ["code" => 404, "message" => __("no_messages_found")]]);
+    require_once __DIR__ . "/../includes/ajax_protect.php";
+    require_once __DIR__ . "/../includes/login.php";
+
+    if (isset($_POST["messages"])) {
+        $ids = json_decode($_POST["messages"]);
+        if (!empty($ids)) {
+            $messages = array();
+            $count = 0;
+            foreach ($ids as $messageID) {
+                $message = new Message();
+                $message->setID($messageID);
+                $message->read(false);
+                $allowed = ["Failed", "Pending", "Queued", "Sent", "Delivered", "Canceled"];
+                if (in_array($message->getStatus(), $allowed)) {
+                    if (!$_SESSION["isAdmin"]) {
+                        if ($message->getUserID() != $_SESSION["userID"]) {
+                            continue;
+                        }
+                    }
+                    if (array_key_exists($message->getUserID(), $messages)) {
+                        $messages[$message->getUserID()]["messages"][] = $message;
+                    } else {
+                        if ($message->getUserID() != $logged_in_user->getID()) {
+                            $user = new User();
+                            $user->setID($message->getUserID());
+                            $user->read();
+                        } else {
+                            $user = $logged_in_user;
+                        }
+                        $messages[$message->getUserID()] = [
+                            "user" => $user,
+                            "messages" => [$message]
+                        ];
+                    }
+                }
             }
-        } else {
-            echo json_encode(["success" => false, "data" => null, "error" => ["code" => 401, "message" => isset($_REQUEST["key"]) ? __("error_incorrect_api_key") : __("error_incorrect_credentials")]]);
+
+            foreach ($messages as $userID => $userMessages) {
+                if (count($userMessages["messages"]) > 0) {
+                    Message::resend($userMessages["messages"], $userMessages["user"]);
+                    $count += count($userMessages["messages"]);
+                }
+            }
+            if ($count > 0) {
+                $success = $count > 1 ? __("success_messages_sent", ["count" => $count]) : __("success_message_sent", ["count" => $count]);
+                echo json_encode(array(
+                    'result' => $success
+                ));
+            } else {
+                throw new Exception(__("error_zero_messages"));
+            }
         }
-        die;
     }
-    echo json_encode(["success" => false, "data" => null, "error" => ["code" => 400, "message" => __("error_invalid_request_format")]]);
 } catch (Throwable $t) {
-    echo json_encode(["success" => false, "data" => null, "error" => ["code" => 500, "message" => $t->getMessage()]]);
+    echo json_encode(array(
+        'error' => $t->getMessage()
+    ));
 }

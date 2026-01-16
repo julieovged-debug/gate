@@ -1,31 +1,23 @@
 <?php
-require_once __DIR__ . "/../config.php";
-require_once __DIR__ . "/../vendor/autoload.php";
-
-date_default_timezone_set(TIMEZONE);
 
 try {
-    require_once __DIR__ . "/../includes/get-user.php";
+    require_once __DIR__ . "/../includes/login.php";
 
-    if (!empty($_REQUEST["request"]) && !empty($_REQUEST["device"]) && isset($user)) {
-        if ($user) {
-            try {
-                $simSlot = null;
-                if (isset($_REQUEST["sim"]) && ctype_digit($_REQUEST["sim"])) {
-                    $simSlot = $_REQUEST["sim"];
-                }
-
-                $ussdRequest = DeviceUser::initiateUssdRequest($_REQUEST["request"], $user->getID(), $_REQUEST["device"], $simSlot);
-                echo json_encode(["success" => true, "data" => ["request" => $ussdRequest], "error" => null]);
-            } catch (InvalidArgumentException $e) {
-                echo json_encode(["success" => false, "data" => null, "error" => ["code" => 404, "message" => $e->getMessage()]]);
-            }
-        } else {
-            echo json_encode(["success" => false, "data" => null, "error" => ["code" => 401, "message" => isset($_REQUEST["key"]) ? __("error_incorrect_api_key") : __("error_incorrect_credentials")]]);
-        }
+    if (empty($_POST["request"]) || empty($_POST["device"])) {
+        throw new Exception(__("error_missing_fields"));
     } else {
-        echo json_encode(["success" => false, "data" => null, "error" => ["code" => 400, "message" => __("error_invalid_request_format")]]);
+        $simSlot = null;
+        if (isset($_POST["sim"]) && ctype_digit($_POST["sim"])) {
+            $simSlot = $_POST["sim"];
+        }
+
+        DeviceUser::initiateUssdRequest($_POST["request"], $_SESSION["userID"], $_POST["device"], $simSlot);
+        echo json_encode([
+            "result" => __("success_sent_ussd_request")
+        ]);
     }
 } catch (Throwable $t) {
-    echo json_encode(["success" => false, "data" => null, "error" => ["code" => 500, "message" => $t->getMessage()]]);
+    echo json_encode(array(
+        'error' => htmlentities($t->getMessage(), ENT_QUOTES)
+    ));
 }
